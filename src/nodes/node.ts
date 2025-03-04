@@ -1,7 +1,8 @@
 import bodyParser from "body-parser";
 import express from "express";
 import { BASE_NODE_PORT } from "../config";
-import { Value } from "../types";
+import {Message, NodeState, Value} from "../types";
+import {delay} from "../utils";
 
 export async function node(
   nodeId: number, // the ID of the node
@@ -16,25 +17,123 @@ export async function node(
   node.use(express.json());
   node.use(bodyParser.json());
 
-  // TODO implement this
+  let state: NodeState = {
+    killed: false,
+    x: initialValue,
+    decided: null,
+    k: 1,
+  };
+  if(!isFaulty)
+  {
+    state = {
+      killed: false,
+      x: null,
+      decided: null,
+      k: null,
+    };
+  }
+  let phase: number = 1;
+  let messages: { [key: number]: { [key: number]: Message[] } } = {};
+
   // this route allows retrieving the current status of the node
-  // node.get("/status", (req, res) => {});
+  node.get("/status", (req, res) => {
+    if(isFaulty)
+      res.status(500).send("faulty");
+    else
+      res.status(200).send("live");
+  });
 
-  // TODO implement this
   // this route allows the node to receive messages from other nodes
-  // node.post("/message", (req, res) => {});
+  node.post("/message", async (req) => {
+    const {message} = req.body;
+    if(message.phase == phase && message.k == state.k)
+    {
+      storeMessage(message);
+      // attendre 100ms
+      delay(100);
+      if(state.k !=null && (phase == 1 || phase == 2 ) && getMessagesLen(state.k,phase)>=N-F)
+      {
+        if(phase==1)
+        {
+          // If more than n/2 messages have the same value, set x to this value
+          const messageCounts: { [key: string]: number } = {};
+          getMessages(state.k, phase).forEach((msg) => {
+            const value = JSON.stringify(msg.x);
+            messageCounts[value] = (messageCounts[value] || 0) + 1;
+          });
+          for (const [value, count] of Object.entries(messageCounts)) {
+            if (count > N / 2) {
+              state.x = JSON.parse(value);
+              break;
+            }else{
+              state.x = "?";
+            }
+          }
+          phase = 2;
+          const message: Message = {
+            phase: 2,
+            x: state.x,
+            k: state.k || 1,
+            nodeId: nodeId
+          };
+          sendToAll(message);
 
-  // TODO implement this
+        }else if(phase == 2)
+        {
+          //If more than 2f messages have the same value, decide on this value
+          const messageCounts: { [key: string]: number } = {};
+          getMessages(state.k, phase).forEach((msg) => {
+            const value = JSON.stringify(msg.x);
+            messageCounts[value] = (messageCounts[value] || 0) + 1;
+          });
+          for (const [value, count] of Object.entries(messageCounts)) {
+            if (count > 2*F) {
+              // decide on the value
+              state.decided=true;
+              state.x = JSON.parse(value);
+              break;
+            }else if(count >F+1)
+            {
+                state.x = JSON.parse(value);
+            }else
+            {
+              // set x to a random value (either 0 or 1)
+              state.x = Math.random() < 0.5 ? 0 : 1;
+            }
+            phase = 1;
+            state.k++;
+          }
+        }
+      }
+    }
+  });
+
   // this route is used to start the consensus algorithm
-  // node.get("/start", async (req, res) => {});
+  node.get("/start", async () => {
+    while(!state.killed)
+    {
+        if(nodesAreReady())
+        {
+          const message: Message = {
+            phase: 1,
+            x: state.x,
+            k: state.k || 1,
+            nodeId: nodeId
+          };
+          sendToAll(message);
+        }
+    }
+  });
 
-  // TODO implement this
   // this route is used to stop the consensus algorithm
-  // node.get("/stop", async (req, res) => {});
+  node.get("/stop", async () => {
+    state.killed = true;
+  });
 
-  // TODO implement this
   // get the current state of a node
-  // node.get("/getState", (req, res) => {});
+  node.get("/getState", (req, res) => {
+    res.send(state);
+  });
 
   // start the server
   const server = node.listen(BASE_NODE_PORT + nodeId, async () => {
@@ -47,4 +146,33 @@ export async function node(
   });
 
   return server;
+
+  function storeMessage( message:Message): void {
+    if(!messages[message.k]) messages[message.k] = {[1]: [], [2]: []}
+    // Check if the node ID is not already in the array before adding the message
+    const nodeIdExists = messages[message.k][phase].some((msg: Message) => msg.nodeId === message.nodeId);
+    if (!nodeIdExists) {
+      messages[message.k][phase].push(message);
+    }
+  }
+  function getMessages(k: number, phase: 1 | 2): Message[] {
+    return messages[k][phase]
+  }
+
+  function getMessagesLen(k: number, phase: 1 | 2): number {
+    return messages[k][phase].length
+  }
+
+  async function sendToAll(message: Message): Promise<void> {
+    for (let i = 0; i < N; i++) {
+      if (i !== nodeId) {
+        await fetch(`http://localhost:${BASE_NODE_PORT + i}/message`, {
+          method: "POST",
+          body: JSON.stringify({ message }),
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+  }
 }
+
