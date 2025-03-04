@@ -50,20 +50,24 @@ export async function node(
     {
       storeMessage(message);
       // attendre 100ms
-      delay(100);
+      await delay(100);
       if(state.k !=null && (phase == 1 || phase == 2 ) && getMessagesLen(state.k,phase)>=N-F)
       {
         if(phase==1)
         {
           // If more than n/2 messages have the same value, set x to this value
-          const messageCounts: { [key: string]: number } = {};
-          getMessages(state.k, phase).forEach((msg) => {
-            const value = JSON.stringify(msg.x);
+          const messageCounts: { [key: number]: number } = {};
+
+
+          for (const msg of getMessages(state.k, phase)) {
+            const value = msg.x;
+            if (typeof value !== "number") continue
             messageCounts[value] = (messageCounts[value] || 0) + 1;
-          });
-          for (const [value, count] of Object.entries(messageCounts)) {
-            if (count > N / 2) {
-              state.x = JSON.parse(value);
+          }
+
+          for (const [key, value] of Object.entries(messageCounts)) {
+            if (value > N / 2) {
+              state.x = Number(key) as 1 | 0;
               break;
             }else{
               state.x = "?";
@@ -82,23 +86,27 @@ export async function node(
         {
           //If more than 2f messages have the same value, decide on this value
           const messageCounts: { [key: string]: number } = {};
-          getMessages(state.k, phase).forEach((msg) => {
-            const value = JSON.stringify(msg.x);
+
+          for(const msg of getMessages(state.k, phase)){
+            const value = msg.x;
+            if (typeof value !== "number") continue
             messageCounts[value] = (messageCounts[value] || 0) + 1;
-          });
-          for (const [value, count] of Object.entries(messageCounts)) {
-            if (count > 2*F) {
+          }
+
+
+          for (const [key, value] of Object.entries(messageCounts)) {
+            if (value > 2*F) {
               // decide on the value
               state.decided=true;
-              state.x = JSON.parse(value);
+              state.x = Number(key) as 1 | 0;
               break;
-            }else if(count >F+1)
+            }else if(value >F+1)
             {
-                state.x = JSON.parse(value);
+                state.x = Number(key) as 1 | 0;
             }else
             {
               // set x to a random value (either 0 or 1)
-              state.x = Math.random() < 0.5 ? 0 : 1;
+              state.x = Math.round(Math.random()) as 1 | 0;
             }
             phase = 1;
             state.k++;
