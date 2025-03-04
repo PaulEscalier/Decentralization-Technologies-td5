@@ -44,7 +44,11 @@ export async function node(
   });
 
   // this route allows the node to receive messages from other nodes
-  node.post("/message", async (req) => {
+  node.post("/message", async (req,res) => {
+    if(isFaulty) {
+      res.status(100)
+      return;
+    }
     const {message} = req.body;
     if(message.phase == phase && message.k == state.k)
     {
@@ -118,19 +122,17 @@ export async function node(
 
   // this route is used to start the consensus algorithm
   node.get("/start", async () => {
-    while(!state.killed)
+    while(!nodesAreReady())
     {
-        if(nodesAreReady())
-        {
-          const message: Message = {
-            phase: 1,
-            x: state.x,
-            k: state.k || 1,
-            nodeId: nodeId
-          };
-          sendToAll(message);
-        }
+      await delay(100)
     }
+    const message: Message = {
+      phase: 1,
+      x: state.x,
+      k: state.k || 1,
+      nodeId: nodeId
+    };
+    sendToAll(message);
   });
 
   // this route is used to stop the consensus algorithm
