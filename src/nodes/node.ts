@@ -121,11 +121,12 @@ export async function node(
   });
 
   // this route is used to start the consensus algorithm
-  node.get("/start", async () => {
+  node.get("/start", async (req,res) => {
     while(!nodesAreReady())
     {
       await delay(100)
     }
+    state.decided = false;
     const message: Message = {
       phase: 1,
       x: state.x,
@@ -133,11 +134,13 @@ export async function node(
       nodeId: nodeId
     };
     sendToAll(message);
+    res.status(200).send("started");
   });
 
   // this route is used to stop the consensus algorithm
-  node.get("/stop", async () => {
+  node.get("/stop", async (req,res) => {
     state.killed = true;
+    res.status(200).send("stopped");
   });
 
   // get the current state of a node
